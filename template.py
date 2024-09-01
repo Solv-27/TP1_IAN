@@ -62,10 +62,13 @@ class AgenteQLearning:
         self.epsilon = epsilon
 
     def elegir_accion(self, estado):
-        if np.random.rand() < self.epsilon:
-            return np.random.choice([JUGADA_TIRAR, JUGADA_PLANTARSE])
+        if (self.ambiente.estado.puntaje_total < 750):
+            return JUGADA_TIRAR
         else:
-            return max(self.q_table[estado].items(), key=lambda x: x[1])[0]
+            if np.random.rand() < self.epsilon:
+                return np.random.choice([JUGADA_TIRAR, JUGADA_PLANTARSE])
+            else:
+                return max(self.q_table[estado].items(), key=lambda x: x[1])[0]
 
     def entrenar(self, episodios, verbose=False):
         for episodio in tqdm(range(episodios), desc="Entrenando"):
@@ -124,7 +127,11 @@ class JugadorEntrenado:
     
     def jugar(self, puntaje_total, puntaje_turno, dados):
         estado = len(dados) 
-        accion = self.elegir_accion(estado)
+
+        if puntaje_total <750:
+            accion = JUGADA_TIRAR
+        else:
+            accion = self.elegir_accion(estado)
         
         if accion == JUGADA_TIRAR:
             puntaje_tirada, dados_no_usados = puntaje_y_no_usados(dados)
@@ -134,6 +141,7 @@ class JugadorEntrenado:
                 dados_a_tirar = []
             else:
                 dados_a_tirar = dados_no_usados  # se tiran los dados que le quedan
+        
         elif accion == JUGADA_PLANTARSE:
             dados_a_tirar = []  # ya no tiene dados porque se planto
 
