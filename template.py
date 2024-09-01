@@ -129,7 +129,7 @@ class JugadorEntrenado:
         if accion == JUGADA_TIRAR:
             puntaje_tirada, dados_no_usados = puntaje_y_no_usados(dados)
             #pierde si de la jugo y no sumo puntos o tambien si ya no le quedan dados
-            if puntaje_tirada == 0 or len(dados_no_usados) > 0:
+            if puntaje_tirada == 0 or len(dados_no_usados) == 0:
                 accion = JUGADA_PLANTARSE
                 dados_a_tirar = []
             else:
