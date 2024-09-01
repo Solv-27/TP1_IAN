@@ -1,212 +1,142 @@
 import numpy as np
-from utils import puntaje_y_no_usados, JUGADA_PLANTARSE, JUGADA_TIRAR, JUGADAS_STR
 from collections import defaultdict
 from tqdm import tqdm
-from jugador import Jugador
+from utils import puntaje_y_no_usados, JUGADA_PLANTARSE, JUGADA_TIRAR, JUGADAS_STR
+
+# Clases EstadoDiezMil y AmbienteDiezMil (sin cambios, se incluyen para contexto)
 
 class EstadoDiezMil:
-    def __init__(self):
-        """Definir qué hace a un estado de diez mil.
-        Recordar que la complejidad del estado repercute en la complejidad de la tabla del agente de q-learning.
-        """
-        self.dados_sobrantes = 6
-        self.recompensa_acumulada = 0
-        self.turno = False
+    def __init__(self, puntaje_total, puntaje_turno, dados):
+        self.puntaje_total = puntaje_total
+        self.puntaje_turno = puntaje_turno
+        self.dados = dados
 
-    def actualizar_estado(self, dados, puntaje, *args, **kwargs) -> None:
-        """Modifica las variables internas del estado luego de una tirada.
-
-        Args:
-            ... (_type_): _description_
-            ... (_type_): _description_
-        """
-        self.dados_sobrantes = len(dados)
-        if puntaje == 0:
-          self.turno = False
-          self.recompensa_acumulada = 0
-        else:
-          self.recompensa_acumulada += puntaje
-          self.turno = True
+    def actualizar_estado(self, puntaje_tirada, dados_a_tirar):
+        self.puntaje_turno += puntaje_tirada
+        self.dados = dados_a_tirar
 
     def fin_turno(self):
-        """Modifica el estado al terminar el turno.
-        """
-        self.turno = False
+        self.puntaje_total += self.puntaje_turno
+        self.puntaje_turno = 0
 
     def __str__(self):
-        """Representación en texto de EstadoDiezMil.
-        Ayuda a tener una versión legible del objeto.
-
-        Returns:
-            str: Representación en texto de EstadoDiezMil.
-        """
-        #Paso el flag de turno a palabras
-        #Paso puntaje como "Tienes x puntos actualmente"
-        #Paso accion a str
-        # if self.turno:
-        #     return "Es tu turno"
-        # else:
-        #     return "No es tu turno"
-
+        return f"Estado(puntaje_total={self.puntaje_total}, puntaje_turno={self.puntaje_turno}, dados={self.dados})"
 
 class AmbienteDiezMil:
-
     def __init__(self):
-        """Definir las variables de instancia de un ambiente.
-        ¿Qué es propio de un ambiente de 10.000?
-        """
-        #Definir estado => dice dados restantes, puntaje acumulado, y flag de turno
-        #Recompensa (lo tenes si tenes puntaje actual creo*)
-
-        self.estado = EstadoDiezMil()
-        self.puntaje_total = 0
-
+        self.estado = EstadoDiezMil(0, 0, [1, 2, 3, 4, 5, 6])
+    
     def reset(self):
-        """Reinicia el ambiente para volver a realizar un episodio.
-        """
-        #Re-establecer estado
-        #Re-establecer recompensa
-        #Re-establezco flag a falso
+        self.estado = EstadoDiezMil(0, 0, [1, 2, 3, 4, 5, 6])
+        return len(self.estado.dados)  # Devolver cantidad de dados como estado inicial
 
-        self.puntaje_total += self.estado.recompensa_acumulada
-        self.estado = self.estado.__init__()
-
-    def step(self, accion):
-        """Dada una acción devuelve una recompensa.
-        El estado es modificado acorde a la acción y su interacción con el ambiente.
-        Podría ser útil devolver si terminó o no el turno.
-
-        Args:
-            accion: Acción elegida por un agente.
-
-        Returns:
-            tuple[int, bool]: Una recompensa y un flag que indica si terminó el turno.
-        """
-        #Accion = plantarse o jugar
-        #if accion = jugar
-            #simulo tirada de dados
-            #analizo dados (guardo puntos ganados)
-            #hay chances de seguir?
-            #si hay chances
-                #hago reset de estado?
-                #devuelvo tuple[recompensa actual + ganado, true] indico que mi turno sigue y busco tomar otra decision
-            #no hay chances de seguir? (osea perdi todo)
-                #devuelvo tuple[recompensa actual, false]
-        #else:
-            #hago reset de estado
-            #devuelvo tuple[recompensa actual, false]
-        if accion == JUGADA_PLANTARSE:
-            self.estado.fin_turno()
-            return self.estado.recompensa_acumulada, False
-        else:
-            pass
+    def step(self, action):
+        if action == JUGADA_TIRAR:
+            dados_tirados = [np.random.randint(1, 7) for _ in self.estado.dados]
+            puntaje, dados_no_usados = puntaje_y_no_usados(dados_tirados)
             
+            if puntaje == 0:  # Fallo
+                reward = -self.estado.puntaje_turno
+                self.estado.fin_turno()
+                done = True
+            else:
+                self.estado.actualizar_estado(puntaje, dados_no_usados)
+                reward = puntaje
+                done = False
+        elif action == JUGADA_PLANTARSE:
+            self.estado.fin_turno()
+            reward = self.estado.puntaje_turno
+            done = True
+        else:
+            raise ValueError("Acción no válida")
+
+        return len(self.estado.dados), reward, done  # para hacer la tabla de estados por cantidad de dados
+
 
 class AgenteQLearning:
-    def __init__(
-        self,
-        ambiente: AmbienteDiezMil,
-        alpha: float,
-        gamma: float,
-        epsilon: float,
-        *args,
-        **kwargs
-    ):
-        """Definir las variables internas de un Agente que implementa el algoritmo de Q-Learning.
-
-        Args:
-            ambiente (AmbienteDiezMil): Ambiente con el que interactuará el agente.
-            alpha (float): Tasa de aprendizaje.
-            gamma (float): Factor de descuento.
-            epsilon (float): Probabilidad de explorar.
-        """
+    def __init__(self, ambiente, alpha=0.1, gamma=0.9, epsilon=0.1):
         self.ambiente = ambiente
-        self.probA = {"JUGADA_TIRAR" : 0.5, "JUGADA_PLANTARSE": 0.5}
-        self.Q_table = np.zeros((7, 2)) #(cantidad de estados, cantidad de acciones), cant_estados = cant de dados que le puede sobrar
+        self.q_table = defaultdict(lambda: {JUGADA_TIRAR: 0, JUGADA_PLANTARSE: 0})
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
 
-
-    def elegir_accion(self):
-        """Selecciona una acción de acuerdo a una política ε-greedy.
-        """
-        nro_random = np.random.uniform(0, 1)
-        if nro_random < self.epsilon:
-            return np.random.choice(self.acciones_posibles)
+    def elegir_accion(self, estado):
+        if np.random.rand() < self.epsilon:
+            return np.random.choice([JUGADA_TIRAR, JUGADA_PLANTARSE])
         else:
-            return self.acciones_posibles[np.argmax(q_table[state,:])]
+            return max(self.q_table[estado].items(), key=lambda x: x[1])[0]
 
-    def entrenar(self, episodios: int, verbose: bool = False) -> None:
-        """Dada una cantidad de episodios, se repite el ciclo del algoritmo de Q-learning.
-        Recomendación: usar tqdm para observar el progreso en los episodios.
+    def entrenar(self, episodios, verbose=False):
+        for episodio in tqdm(range(episodios), desc="Entrenando"):
+            estado = self.ambiente.reset()
+            done = False
+            
+            while not done:
+                accion = self.elegir_accion(estado)
+                nuevo_estado, recompensa, done = self.ambiente.step(accion)
+                
+                if nuevo_estado not in self.q_table:
+                    self.q_table[nuevo_estado] = {JUGADA_TIRAR: 0, JUGADA_PLANTARSE: 0}
+                
+                mejor_futuro = max(self.q_table[nuevo_estado].values())
+                self.q_table[estado][accion] += self.alpha * (recompensa + self.gamma * mejor_futuro - self.q_table[estado][accion])
 
-        Args:
-            episodios (int): Cantidad de episodios a iterar.
-            verbose (bool, optional): Flag para hacer visible qué ocurre en cada paso. Defaults to False.
-        """
-        for episodio in tqdm(range(episodios)):
-            self.ambiente.reset()
-            estado_actual = str(self.ambiente.estado)
-            terminado = False
+                estado = nuevo_estado
+            
+            if verbose:
+                print(f"Época {episodio}: Estado {estado}, Acción {accion}, Recompensa {recompensa}")
 
-            while not terminado:
-                accion = self.elegir_accion(estado_actual)
-                recompensa, terminado = self.ambiente.step(accion)
-                estado_siguiente = str(self.ambiente.estado)
-
-                # Actualizar Q-table
-                self.q_table[estado_actual][accion] += self.alpha * (
-                    recompensa + self.gamma * np.max(self.q_table[estado_siguiente]) - self.q_table[estado_actual][accion]
-                )
-
-                estado_actual = estado_siguiente
+            if self.epsilon > 0.1:
+                self.epsilon *= 0.995
 
 
-    def guardar_politica(self, filename: str):
-        """Almacena la política del agente en un formato conveniente.
+            print(f"Tabla Q después del episodio {episodio}: {dict(self.q_table)}")
 
-        Args:
-            filename (str): Nombre/Path del archivo a generar.
-        """
-        pass
+    def guardar_politica(self, filename):
+        print("Guardando política. Contenido de la tabla Q:")
+        with open(filename, "w") as f:
+            for estado, acciones in self.q_table.items():
+                f.write(f"{estado},{acciones[JUGADA_TIRAR]},{acciones[JUGADA_PLANTARSE]}\n")
 
-class JugadorEntrenado(Jugador):
-    def __init__(self, nombre: str, filename_politica: str):
+
+
+class JugadorEntrenado:
+    def __init__(self, nombre, politica_filename):
         self.nombre = nombre
-        self.politica = self._leer_politica(filename_politica)
+        self.q_table = self.cargar_politica(politica_filename)
 
-    def _leer_politica(self, filename:str, SEP:str=','):
-        """Carga una politica entrenada con un agente de RL, que está guardada
-        en el archivo filename en un formato conveniente.
-        Args:
-            filename (str): Nombre/Path del archivo que contiene a una política almacenada.
-        """
-        pass
+    def cargar_politica(self, filename):
+        q_table = defaultdict(lambda: {JUGADA_TIRAR: 0, JUGADA_PLANTARSE: 0})
+        with open(filename, "r") as f:
+            for line in f:
+                parts = line.strip().split(',')
+                estado = int(parts[0]) 
+                q_table[estado] = {
+                    JUGADA_TIRAR: float(parts[1]),  # Valor para JUGADA_TIRAR
+                    JUGADA_PLANTARSE: float(parts[2])  # Valor para JUGADA_PLANTARSE
+                }
+        return q_table
 
-    def jugar(
-        self,
-        puntaje_total:int,
-        puntaje_turno:int,
-        dados:list[int],
-    ) -> tuple[int,list[int]]:
-        """Devuelve una jugada y los dados a tirar.
+    def elegir_accion(self, estado):
+        acciones = self.q_table[estado]  # Estado es simplemente el número de dados restantes
+        return max(acciones, key=acciones.get)
+    
+    def jugar(self, puntaje_total, puntaje_turno, dados):
+        estado = len(dados) 
+        accion = self.elegir_accion(estado)
+        
+        if accion == JUGADA_TIRAR:
+            puntaje_tirada, dados_no_usados = puntaje_y_no_usados(dados)
+            #pierde si de la jugo y no sumo puntos o tambien si ya no le quedan dados
+            if puntaje_tirada == 0 or len(dados_no_usados) > 0:
+                accion = JUGADA_PLANTARSE
+                dados_a_tirar = []
+            else:
+                dados_a_tirar = dados_no_usados  # se tiran los dados que le quedan
+        elif accion == JUGADA_PLANTARSE:
+            dados_a_tirar = []  # ya no tiene dados porque se planto
 
-        Args:
-            puntaje_total (int): Puntaje total del jugador en la partida.
-            puntaje_turno (int): Puntaje en el turno del jugador
-            dados (list[int]): Tirada del turno.
+        return accion, dados_a_tirar
 
-        Returns:
-            tuple[int,list[int]]: Una jugada y la lista de dados a tirar.
-        """
-        pass
-        # puntaje, no_usados = puntaje_y_no_usados(dados)
-        # COMPLETAR
-        # estado = ...
-        # jugada = self.politica[estado]
-
-        # if jugada==JUGADA_PLANTARSE:
-        #     return (JUGADA_PLANTARSE, [])
-        # elif jugada==JUGADA_TIRAR:
-        #     return (JUGADA_TIRAR, no_usados)
+    

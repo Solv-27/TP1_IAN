@@ -3,6 +3,7 @@ from diezmil import JuegoDiezMil
 from template import JugadorEntrenado
 
 def main(politica_filename, verbose):
+    politica_filename = r'C:\Users\olini\OneDrive\Documentos\ditella\ia y neuro\politica.csv'
     jugador = JugadorEntrenado('qlearning', politica_filename)
     juego = JuegoDiezMil(jugador)
     cantidad_turnos, puntaje_final = juego.jugar(verbose=verbose)
